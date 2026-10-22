@@ -16,6 +16,15 @@
   --c-art: #9a6a3c;
   --c-cie: #2fae5a;
   --c-jog: #f07b22;
+  /* Cores dos jogadores (Festa) */
+  --j-vermelho: #ff5a5f;
+  --j-laranja: #ff9f1c;
+  --j-amarelo: #ffd23f;
+  --j-verde: #3ddc84;
+  --j-turquesa: #2ec4b6;
+  --j-azul: #4d9de0;
+  --j-roxo: #a06cf0;
+  --j-rosa: #f15bb5;
   --radius: 14px;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   color-scheme: dark;
@@ -302,3 +311,76 @@ button:disabled { cursor: default; }
 .p1 .bloco { height: 120px; border-color: var(--gold); color: var(--gold); }
 .p2 .bloco { height: 86px; }
 .p3 .bloco { height: 62px; }
+
+/* ---------- Festa: bonecos, cores e corrida ---------- */
+.campo-texto { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-height: 46px; }
+.seletor-boneco, .seletor-cor { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; }
+.seletor-boneco legend, .seletor-cor legend { font-size: .85rem; color: var(--muted); margin-bottom: 6px; padding: 0; }
+.seletor-boneco { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+.seletor-boneco label, .amostra-cor { position: relative; cursor: pointer; }
+.seletor-boneco input, .amostra-cor input { position: absolute; opacity: 0; inset: 0; }
+.seletor-boneco span {
+  display: grid; place-items: center; aspect-ratio: 1; font-size: 1.5rem; border-radius: 12px;
+  border: 2px solid var(--line); background: var(--bg); transition: transform .1s, border-color .15s;
+}
+.seletor-boneco input:checked + span { border-color: var(--gold); background: color-mix(in srgb, var(--gold) 18%, var(--bg)); transform: scale(1.06); }
+.seletor-boneco input:focus-visible + span, .amostra-cor input:focus-visible + span { outline: 3px solid var(--gold-2); outline-offset: 2px; }
+.seletor-cor { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+.amostra-cor span { display: block; aspect-ratio: 1; max-width: 44px; margin: 0 auto; border-radius: 50%; background: var(--c); border: 3px solid transparent; box-shadow: 0 0 0 1px var(--line); }
+.amostra-cor input:checked + span { border-color: var(--text); box-shadow: 0 0 0 3px var(--c); }
+@media (max-width: 420px) { .seletor-boneco { grid-template-columns: repeat(4, minmax(0, 1fr)); } .seletor-cor { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.previa { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 999px; background: color-mix(in srgb, var(--c) 20%, var(--bg)); border: 1px solid var(--c); }
+.previa b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.avatar {
+  display: inline-grid; place-items: center; flex: none; width: 2.4em; height: 2.4em; border-radius: 50%;
+  background: var(--c); font-size: 1.1rem; line-height: 1; box-shadow: 0 2px 8px rgba(0, 0, 0, .35); vertical-align: middle;
+}
+.avatar.mini { width: 1.7em; height: 1.7em; font-size: .9rem; box-shadow: none; }
+.avatar.grande { width: 2.2em; height: 2.2em; font-size: 1.8rem; }
+.previa .avatar { width: 2.6em; height: 2.6em; font-size: 1.4rem; }
+.festa-lista li { display: inline-flex; align-items: center; gap: 6px; border-color: color-mix(in srgb, var(--c) 60%, transparent); }
+.frase-pessoal { margin: 0; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--gold) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--gold) 40%, transparent); text-align: center; }
+.frase-pessoal b { color: var(--gold-2); }
+
+.pista { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-variant-numeric: tabular-nums; }
+.faixa-jog { display: grid; grid-template-columns: minmax(0, 8.5em) minmax(0, 1fr) 4.6em; align-items: center; gap: 10px; }
+.pista-nome { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: .92rem; }
+.pista-nome .lugar { width: 1.3em; color: var(--muted); flex: none; }
+.nome-txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.faixa {
+  --boneco: 38px; position: relative; height: calc(var(--boneco) + 6px); border-radius: 999px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c) 10%, var(--surface)), color-mix(in srgb, var(--c) 28%, var(--surface)));
+  border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
+}
+.faixa::after { /* meta */
+  content: ""; position: absolute; right: 6px; top: 4px; bottom: 4px; width: 4px; border-radius: 2px; opacity: .55;
+  background: repeating-linear-gradient(180deg, var(--text) 0 4px, transparent 4px 8px);
+}
+.boneco {
+  position: absolute; top: 50%; left: calc(2px + var(--x) * (100% - var(--boneco) - 4px)); transform: translateY(-50%); z-index: 1;
+  width: var(--boneco); height: var(--boneco); border-radius: 50%; display: grid; place-items: center; font-size: 1.35rem;
+  background: var(--c); box-shadow: 0 2px 10px rgba(0, 0, 0, .45); transition: left 1.6s cubic-bezier(.22, .8, .25, 1);
+}
+.bolha {
+  position: absolute; bottom: calc(100% - 6px); left: 50%; transform: translateX(-50%); font-style: normal; font-size: .72rem; font-weight: 800;
+  padding: 2px 7px; border-radius: 999px; background: var(--ok); color: #fff; white-space: nowrap; animation: bolha 2.2s ease-out both;
+}
+@keyframes bolha { 0% { opacity: 0; transform: translate(-50%, 8px); } 15% { opacity: 1; transform: translate(-50%, 0); } 80% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -10px); } }
+.pista-pts { display: grid; justify-items: end; line-height: 1.15; }
+.pista-pts small { color: var(--muted); font-size: .78rem; }
+.faixa-jog.eu .faixa { box-shadow: 0 0 0 2px var(--gold); }
+.faixa-jog.eu .nome-txt { color: var(--gold-2); font-weight: 700; }
+.seta { font-size: .72rem; font-weight: 800; flex: none; }
+.seta.sobe { color: var(--ok); }
+.seta.desce { color: var(--bad); }
+.pista-salto { text-align: center; color: var(--muted); font-size: .85rem; }
+.ver-todos summary { cursor: pointer; color: var(--muted); padding: 6px 0; }
+.ver-todos .festa-ranking { margin-top: 6px; }
+.festa-ranking .nome { display: flex; align-items: center; gap: 6px; }
+.degrau-podio .avatar { margin-bottom: 2px; }
+@media (max-width: 480px) {
+  .faixa-jog { grid-template-columns: minmax(0, 5.8em) minmax(0, 1fr) 3.9em; gap: 6px; }
+  .faixa { --boneco: 32px; }
+  .boneco { font-size: 1.1rem; }
+  .pista-nome { font-size: .82rem; }
+}

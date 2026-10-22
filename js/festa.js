@@ -13,7 +13,14 @@
   const PREFIXO = 'trivia-lusofono/v1/';
   const NIVEL = { f: { nome: 'Fácil', pontos: 100 }, m: { nome: 'Médio', pontos: 300 }, d: { nome: 'Difícil', pontos: 500 } };
   const LETRAS = ['A', 'B', 'C', 'D'];
-  const BANDEIRAS = ['🇵🇹', '🇧🇷', '🇦🇴', '🇲🇿', '🇨🇻', '🇬🇼', '🇸🇹', '🇹🇱', '🌍'];
+  const BONECOS = ['🦊', '🐸', '🐙', '🦄', '🐧', '🦁', '🐵', '🐢', '🐼', '🐨', '🐯', '🦉', '🐝', '🦋', '🐬', '🦖'];
+  const CORES = [
+    { id: 'vermelho', nome: 'Vermelho' }, { id: 'laranja', nome: 'Laranja' }, { id: 'amarelo', nome: 'Amarelo' }, { id: 'verde', nome: 'Verde' },
+    { id: 'turquesa', nome: 'Turquesa' }, { id: 'azul', nome: 'Azul' }, { id: 'roxo', nome: 'Roxo' }, { id: 'rosa', nome: 'Rosa' },
+  ];
+  const COR_IDS = CORES.map(c => c.id);
+  const corVar = id => `var(--j-${COR_IDS.includes(id) ? id : 'azul'})`;
+  const MAX_PISTAS = 10;
   const ATIVO_MS = 30000;      // sem presença há mais do que isto = inativo
   const SEM_SINAL_MS = 20000;  // jogador sem notícias do anfitrião
   const app = document.getElementById('app');
@@ -32,7 +39,12 @@
 
   function eu() {
     let e = ls.ler('festa:eu', null);
-    if (!e || !e.id) { e = { id: novoId(), nome: '', bandeira: '🇵🇹' }; ls.gravar('festa:eu', e); }
+    if (!e || !e.id) e = { id: novoId(), nome: '' };
+    if (!BONECOS.includes(e.boneco) || !COR_IDS.includes(e.cor)) { // primeira visita: ao acaso
+      e.boneco = BONECOS[Math.floor(Math.random() * BONECOS.length)];
+      e.cor = COR_IDS[Math.floor(Math.random() * COR_IDS.length)];
+    }
+    ls.gravar('festa:eu', e);
     return e;
   }
 
@@ -79,9 +91,8 @@
   let hostTick = null;
   let pubPendente = null;
 
-  function criarSala({ nome, bandeira, total, tempo }) {
+  function criarSala({ total, tempo }) {
     const e = eu();
-    e.nome = nome; e.bandeira = bandeira; ls.gravar('festa:eu', e);
     H = {
       codigo: novoCodigo(), b: 0, hostId: e.id, total, tempo, fase: 'espera', n: 0,
       jogadores: { [e.id]: novoJogador(e) }, pergunta: null, respostas: {}, usadas: [], plano: [],
@@ -97,10 +108,14 @@
   }
 
   function novoJogador(e) {
-    return { nome: limparNome(e.nome) || 'Jogador', bandeira: BANDEIRAS.includes(e.bandeira) ? e.bandeira : '🌍', pontos: 0, serie: 0, ganho: 0, visto: Date.now(), acertos: 0 };
+    return { nome: limparNome(e.nome) || 'Jogador', ...perfil(e), pontos: 0, antes: 0, serie: 0, ganho: 0, visto: Date.now(), acertos: 0 };
   }
 
+  // Boneco e cor vêm da rede: só valores das listas.
+  const perfil = d => ({ boneco: BONECOS.includes(d.boneco) ? d.boneco : BONECOS[0], cor: COR_IDS.includes(d.cor) ? d.cor : 'azul' });
+
   function iniciarAnfitriao(c) {
+    for (const j of Object.values(H.jogadores)) Object.assign(j, perfil(j)); // estado guardado de versões antigas
     const base = PREFIXO + H.codigo + '/';
     c.subscribe([base + 'entrar', base + 'resposta'], { qos: 1 });
     c.on('message', (topico, msg) => {
@@ -119,10 +134,10 @@
 
   function receberEntrada(d) {
     const j = H.jogadores[d.id];
-    if (j) { // presença ou mudança de nome
+    if (j) { // presença, ou mudança de nome/boneco/cor
       j.visto = Date.now();
-      const nome = limparNome(d.nome);
-      if (nome && nome !== j.nome) { j.nome = nome; agendarPublicacao(); }
+      const nome = limparNome(d.nome) || j.nome, { boneco, cor } = perfil(d);
+      if (nome !== j.nome || boneco !== j.boneco || cor !== j.cor) { Object.assign(j, { nome, boneco, cor }); agendarPublicacao(); }
       return;
     }
     H.jogadores[d.id] = novoJogador(d);
@@ -171,7 +186,7 @@
   }
 
   function comecarJogo() {
-    for (const j of Object.values(H.jogadores)) { j.pontos = 0; j.serie = 0; j.ganho = 0; j.acertos = 0; }
+    for (const j of Object.values(H.jogadores)) { j.pontos = 0; j.antes = 0; j.serie = 0; j.ganho = 0; j.acertos = 0; }
     H.plano = planoPerguntas(H.total);
     H.n = 0;
     proximaPergunta();
@@ -183,6 +198,7 @@
     H.n++;
     H.pergunta = tirar(cat, diff);
     H.respostas = {};
+    for (const j of Object.values(H.jogadores)) { j.antes = j.pontos; j.ganho = 0; }
     H.inicio = Date.now();
     H.prazo = H.inicio + H.tempo * 1000;
     H.fase = 'pergunta';
@@ -195,7 +211,7 @@
     const p = H.pergunta, base = NIVEL[p.diff].pontos;
     for (const [id, j] of Object.entries(H.jogadores)) {
       const r = H.respostas[id];
-      j.posAntes = j.pontos;
+      j.antes = j.pontos;
       if (r && r.opcao === p.certa) {
         const rapidez = Math.max(0, Math.min(1, (H.prazo - r.t) / (H.tempo * 1000)));
         const bonus = Math.min(j.serie, 5) * 0.1;
@@ -216,10 +232,14 @@
   // Estado público: a resposta certa só viaja na revelação.
   function estadoPublico() {
     const ativos = new Set(idsAtivos());
+    const ordem = (k) => (a, b) => b[k] - a[k] || a.nome.localeCompare(b.nome);
     const jogadores = Object.entries(H.jogadores).map(([id, j]) => ({
-      id, nome: j.nome, bandeira: j.bandeira, pontos: j.pontos, ganho: j.ganho, serie: j.serie, acertos: j.acertos,
+      id, nome: j.nome, boneco: j.boneco, cor: j.cor, pontos: j.pontos, antes: j.antes ?? j.pontos, ganho: j.ganho, serie: j.serie, acertos: j.acertos,
       ativo: ativos.has(id), respondeu: !!H.respostas[id], anfitriao: id === H.hostId,
-    })).sort((a, b) => b.pontos - a.pontos || a.nome.localeCompare(b.nome));
+    }));
+    // Lugar antes da pergunta, para as setas de subida/descida.
+    [...jogadores].sort(ordem('antes')).forEach((j, i) => { j.lugarAntes = i + 1; });
+    jogadores.sort(ordem('pontos'));
     const e = { v: 1, codigo: H.codigo, fase: H.fase, ts: Date.now(), total: H.total, tempo: H.tempo, n: H.n, jogadores };
     if (H.pergunta && (H.fase === 'pergunta' || H.fase === 'revelar')) {
       const p = H.pergunta;
@@ -271,9 +291,7 @@
     app.innerHTML = `<section class="ecra setup festa">
       <div class="logo"><span class="logo-q">🎉</span><h1>Trivia <em>Lusófono</em></h1><p>Sala <b class="codigo">${esc(codigo)}</b></p></div>
       <form id="f-form-entrar" class="cartao">
-        <label class="campo"><span>Nome</span>
-          <div class="campo-linha"><select id="f-bandeira" name="bandeira" aria-label="Bandeira">${BANDEIRAS.map(b => `<option ${b === e.bandeira ? 'selected' : ''}>${b}</option>`).join('')}</select>
-          <input id="f-nome" name="nome" value="${esc(e.nome)}" maxlength="18" autocomplete="nickname" required placeholder="Como os outros vão ver"></div></label>
+        ${seletorPerfil(e, 'Nome')}
         <button class="btn btn-ouro" type="submit">Entrar na sala</button>
       </form>
       <p class="dica">Todos respondem às mesmas perguntas ao mesmo tempo. Quem acerta mais depressa ganha mais pontos.</p>
@@ -281,9 +299,8 @@
     app.querySelector('#f-nome').focus();
   }
 
-  function entrarSala(codigo, nome, bandeira) {
+  function entrarSala(codigo) {
     const e = eu();
-    e.nome = nome; e.bandeira = bandeira; ls.gravar('festa:eu', e);
     J = { codigo, b: Number(params.get('b')) || 0, ultimo: Date.now(), minhaResposta: ls.ler('festa:resp:' + codigo, null), estado: null };
     ecraAguarde('Um momento…');
     ligar(J.b, c => {
@@ -302,7 +319,7 @@
         J.estado = d;
         renderJogador();
       });
-      const anunciar = () => publicar(codigo + '/entrar', { id: e.id, nome: e.nome, bandeira: e.bandeira });
+      const anunciar = () => publicar(codigo + '/entrar', { id: e.id, nome: e.nome, boneco: e.boneco, cor: e.cor });
       anunciar();
       clearInterval(presenca); presenca = setInterval(anunciar, 10000);
       clearInterval(vigia); vigia = setInterval(() => {
@@ -349,15 +366,80 @@
       ${H ? '' : `<p class="festa-aviso" id="f-sem-sinal" hidden>Sem sinal do anfitrião. Se não voltar, a sala terminou.</p>`}`;
   }
 
+  // Nome, bonecos, cores e pré-visualização (criar e entrar).
+  function seletorPerfil(e, rotuloNome) {
+    return `<label class="campo"><span>${esc(rotuloNome)}</span>
+        <input id="f-nome" class="campo-texto" name="nome" value="${esc(e.nome)}" maxlength="18" autocomplete="nickname" required placeholder="Como os outros vão ver"></label>
+      <fieldset class="seletor-boneco"><legend>Boneco</legend>
+        ${BONECOS.map((b, i) => `<label><input type="radio" id="f-boneco-${i}" name="boneco" value="${b}" ${b === e.boneco ? 'checked' : ''}><span>${b}</span></label>`).join('')}
+      </fieldset>
+      <fieldset class="seletor-cor"><legend>Cor</legend>
+        ${CORES.map(c => `<label class="amostra-cor" style="--c:${corVar(c.id)}" title="${c.nome}"><input type="radio" id="f-cor-${c.id}" name="cor" value="${c.id}" ${c.id === e.cor ? 'checked' : ''} aria-label="${c.nome}"><span></span></label>`).join('')}
+      </fieldset>
+      <div class="previa" id="f-previa" style="--c:${corVar(e.cor)}"><span class="avatar">${e.boneco}</span><b>${esc(e.nome) || 'O meu boneco'}</b></div>`;
+  }
+
+  const avatar = (j, cls = '') => `<span class="avatar ${cls}" style="--c:${corVar(j.cor)}" aria-hidden="true">${esc(j.boneco || '🙂')}</span>`;
+
   function linhaRanking(j, meuId, i, mostrarGanho) {
     return `<li class="${j.id === meuId ? 'eu' : ''} ${j.ativo ? '' : 'inativo'}">
-      <span class="pos">${i + 1}</span><span class="nome">${esc(j.bandeira)} ${esc(j.nome)}${j.anfitriao ? ' <small>anfitrião</small>' : ''}${j.id === meuId ? ' <small>(eu)</small>' : ''}</span>
+      <span class="pos">${i + 1}</span><span class="nome">${avatar(j, 'mini')} ${esc(j.nome)}${j.anfitriao ? ' <small>anfitrião</small>' : ''}${j.id === meuId ? ' <small>(eu)</small>' : ''}</span>
       ${mostrarGanho ? `<span class="ganho ${j.ganho ? 'mais' : ''}">${j.ganho ? '+' + j.ganho : '—'}</span>` : ''}
       <b class="pts">${j.pontos.toLocaleString('pt')}</b></li>`;
   }
 
-  function cabecalho(e) {
-    return `<header class="festa-topo"><span class="codigo-sala">Sala <b>${esc(e.codigo)}</b></span>
+  // Corrida: cada jogador numa pista; distância horizontal proporcional aos pontos (líder na meta).
+  function pista(e, meuId, animar) {
+    const js = e.jogadores, lider = js[0]?.pontos || 0;
+    const minha = js.findIndex(j => j.id === meuId);
+    let visiveis = js.map((j, i) => [j, i]);
+    if (js.length > MAX_PISTAS) {
+      visiveis = visiveis.slice(0, minha >= MAX_PISTAS - 1 ? MAX_PISTAS - 1 : MAX_PISTAS);
+      if (minha >= MAX_PISTAS - 1) visiveis.push([js[minha], minha]);
+    }
+    const x = p => (lider > 0 ? Math.max(0, Math.min(1, p / lider)) : 0).toFixed(4);
+    const linhas = [];
+    visiveis.forEach(([j, i], k) => {
+      if (k > 0 && i - visiveis[k - 1][1] > 1) linhas.push(`<li class="pista-salto">… mais ${i - visiveis[k - 1][1] - 1} jogadores …</li>`);
+      const mudou = (j.lugarAntes || i + 1) - (i + 1);
+      const seta = animar && mudou ? `<span class="seta ${mudou > 0 ? 'sobe' : 'desce'}">${mudou > 0 ? '▲' : '▼'}${Math.abs(mudou)}</span>` : '';
+      const distancia = i === 0 ? (lider > 0 ? '🏁' : '') : `−${(lider - j.pontos).toLocaleString('pt')}`;
+      linhas.push(`<li class="faixa-jog ${j.id === meuId ? 'eu' : ''} ${j.ativo ? '' : 'inativo'}" style="--c:${corVar(j.cor)}">
+        <span class="pista-nome"><b class="lugar">${i + 1}</b><span class="nome-txt">${esc(j.nome)}</span>${seta}</span>
+        <span class="faixa"><span class="boneco" style="--x:${animar ? x(j.antes) : x(j.pontos)}" data-x="${x(j.pontos)}">${esc(j.boneco || '🙂')}${animar && j.ganho ? `<i class="bolha">+${j.ganho}</i>` : ''}</span></span>
+        <span class="pista-pts"><b>${j.pontos.toLocaleString('pt')}</b><small>${distancia}</small></span></li>`);
+    });
+    const todos = js.length > MAX_PISTAS ? `<details class="ver-todos"><summary>Ver todos (${js.length})</summary>
+      <ol class="festa-ranking">${js.map((j, i) => linhaRanking(j, meuId, i, e.fase === 'revelar')).join('')}</ol></details>` : '';
+    return `<ol class="pista" ${animar ? 'data-animar' : ''} aria-label="Corrida de pontos">${linhas.join('')}</ol>${todos}`;
+  }
+
+  // Frase pessoal: lugar, subida/descida e distância para quem está à frente.
+  function frasePessoal(e, meuId) {
+    const js = e.jogadores, i = js.findIndex(j => j.id === meuId);
+    if (i < 0 || js.length < 2) return '';
+    const me = js[i], lugar = i + 1, antes = me.lugarAntes || lugar;
+    const mov = antes > lugar ? `⬆️ Subiu para ${lugar}.º` : antes < lugar ? `⬇️ Desceu para ${lugar}.º` : `${lugar}.º lugar`;
+    if (i === 0) {
+      const margem = me.pontos - js[1].pontos;
+      return `${mov} · ${margem > 0 ? `na frente por <b>${margem.toLocaleString('pt')} pts</b> 🏁` : 'empatado na frente'}`;
+    }
+    const frente = js[i - 1], dif = frente.pontos - me.pontos;
+    return `${mov} · ${dif > 0 ? `a <b>${dif.toLocaleString('pt')} pts</b> de ${esc(frente.nome)}` : `empatado com ${esc(frente.nome)}`}`;
+  }
+
+  let ultimaAnimada = null;
+  function animarPista() {
+    const el = app.querySelector('.pista[data-animar]');
+    if (!el) return;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.querySelectorAll('.boneco').forEach(b => b.style.setProperty('--x', b.dataset.x));
+    }));
+  }
+
+  function cabecalho(e, meuId) {
+    const me = e.jogadores.find(j => j.id === meuId);
+    return `<header class="festa-topo"><span class="codigo-sala">${me ? avatar(me, 'mini') + ' ' : ''}Sala <b>${esc(e.codigo)}</b></span>
       <span>${e.jogadores.length} ${e.jogadores.length === 1 ? 'jogador' : 'jogadores'}</span>
       ${e.n && e.fase !== 'espera' ? `<span>Pergunta ${e.n} de ${e.total}</span>` : ''}</header>`;
   }
@@ -366,12 +448,18 @@
     const corpo = { espera: ecraSala, pergunta: ecraPergunta, revelar: ecraPergunta, fim: ecraPodio }[e.fase];
     if (!corpo) return;
     const ativo = document.activeElement?.id;
-    app.innerHTML = `<section class="ecra festa">${cabecalho(e)}${avisos()}${corpo(e, meuId, souAnfitriao)}</section>`;
+    const aberto = app.querySelector('details.ver-todos')?.open;
+    // A corrida anima uma vez por pergunta (redesenhos por presença não a repetem).
+    const animar = e.fase === 'revelar' && ultimaAnimada !== `${e.codigo}:${e.n}` && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (e.fase === 'revelar') ultimaAnimada = `${e.codigo}:${e.n}`;
+    app.innerHTML = `<section class="ecra festa">${cabecalho(e, meuId)}${avisos()}${corpo(e, meuId, souAnfitriao, animar)}</section>`;
+    if (aberto) app.querySelector('details.ver-todos')?.setAttribute('open', '');
+    if (animar) animarPista();
     if (ativo === 'f-link') document.getElementById('f-link')?.focus();
   }
 
   function ecraSala(e, meuId, souAnfitriao) {
-    const lista = `<ul class="festa-lista">${e.jogadores.map(j => `<li class="${j.id === meuId ? 'eu' : ''} ${j.ativo ? '' : 'inativo'}">${esc(j.bandeira)} ${esc(j.nome)}${j.anfitriao ? ' <small>anfitrião</small>' : ''}</li>`).join('')}</ul>`;
+    const lista = `<ul class="festa-lista">${e.jogadores.map(j => `<li class="${j.id === meuId ? 'eu' : ''} ${j.ativo ? '' : 'inativo'}" style="--c:${corVar(j.cor)}">${avatar(j, 'mini')} ${esc(j.nome)}${j.anfitriao ? ' <small>anfitrião</small>' : ''}</li>`).join('')}</ul>`;
     if (!souAnfitriao) {
       return `<div class="cartao festa-centro"><h2 class="titulo">Dentro da sala! 🎉</h2>
         <p class="dica">O jogo começa quando o anfitrião der o sinal.</p></div>
@@ -395,7 +483,7 @@
       <button class="btn btn-ouro btn-grande" id="f-comecar">Começar jogo</button>`;
   }
 
-  function ecraPergunta(e, meuId, souAnfitriao) {
+  function ecraPergunta(e, meuId, souAnfitriao, animar) {
     const p = e.pergunta, c = CAT[p.cat], nv = NIVEL[p.diff], r = e.revelar;
     const minha = souAnfitriao ? (H.respostas[meuId]?.opcao ?? null) : (J.minhaResposta && J.minhaResposta.n === e.n ? J.minhaResposta.opcao : null);
     const eu_ = e.jogadores.find(j => j.id === meuId);
@@ -417,8 +505,9 @@
       const titulo = minha === null ? '⏰ Sem resposta' : acertei ? `✅ Certo! +${eu_?.ganho || 0} pts` : '❌ Errado';
       const serie = acertei && eu_?.serie >= 2 ? `<p class="nota">🔥 ${eu_.serie} certas seguidas</p>` : '';
       rodape = `<div class="painel ${acertei ? 'certo' : 'errado'}"><h3>${titulo}</h3>${serie}<p class="curiosidade">💡 ${esc(r.curiosidade)}</p></div>
-        <h3 class="festa-sub">Classificação</h3>
-        <ol class="festa-ranking">${e.jogadores.map((j, i) => linhaRanking(j, meuId, i, true)).join('')}</ol>
+        <h3 class="festa-sub">Corrida</h3>
+        ${frasePessoal(e, meuId) ? `<p class="frase-pessoal">${frasePessoal(e, meuId)}</p>` : ''}
+        ${pista(e, meuId, animar)}
         ${souAnfitriao ? `<button class="btn btn-ouro btn-grande" id="f-proxima">${e.n >= e.total ? 'Ver pódio' : 'Próxima pergunta'}</button>`
           : '<p class="dica">O anfitrião avança para a próxima pergunta.</p>'}`;
     }
@@ -437,10 +526,10 @@
     const pos = e.jogadores.findIndex(j => j.id === meuId);
     return `<div class="podio">${[1, 0, 2].filter(i => top[i]).map(i => `
         <div class="degrau-podio p${i + 1}"><span class="medalha">${medalhas[i]}</span>
-          <b>${esc(top[i].bandeira)} ${esc(top[i].nome)}</b><span>${top[i].pontos.toLocaleString('pt')} pts</span><div class="bloco">${i + 1}</div></div>`).join('')}
+          ${avatar(top[i], 'grande')}<b>${esc(top[i].nome)}</b><span>${top[i].pontos.toLocaleString('pt')} pts</span><div class="bloco">${i + 1}</div></div>`).join('')}
       </div>
       ${pos >= 0 ? `<p class="dica">Ficou em <b>${pos + 1}.º lugar</b> de ${e.jogadores.length}, com ${e.jogadores[pos].acertos} de ${e.total} certas.</p>` : ''}
-      <ol class="festa-ranking">${e.jogadores.map((j, i) => linhaRanking(j, meuId, i, false)).join('')}</ol>
+      ${pista(e, meuId, false)}
       <div class="acoes">${souAnfitriao ? '<button class="btn btn-ouro" id="f-de-novo">Jogar de novo (mesma sala)</button>' : '<p class="dica">Se o anfitrião começar outro jogo, entra automaticamente.</p>'}
         <button class="btn" id="f-sair">Sair</button></div>`;
   }
@@ -461,9 +550,7 @@
     app.innerHTML = `<section class="ecra setup festa">
       <div class="logo"><span class="logo-q">🎉</span><h1>Festa <em>online</em></h1><p>Uma sala, um link, e cada amigo entra pelo próprio telemóvel… ou celular.</p></div>
       <form id="f-form-criar" class="cartao">
-        <label class="campo"><span>Nome (o anfitrião também joga)</span>
-          <div class="campo-linha"><select id="f-bandeira" name="bandeira" aria-label="Bandeira">${BANDEIRAS.map(b => `<option ${b === e.bandeira ? 'selected' : ''}>${b}</option>`).join('')}</select>
-          <input id="f-nome" name="nome" value="${esc(e.nome)}" maxlength="18" required></div></label>
+        ${seletorPerfil(e, 'Nome (o anfitrião também joga)')}
         <fieldset class="opcoes-jogo"><legend>Perguntas</legend>
           ${[10, 15, 20].map(n => `<label class="pill"><input type="radio" id="f-total-${n}" name="total" value="${n}" ${n === 10 ? 'checked' : ''}><span>${n}</span></label>`).join('')}
         </fieldset>
@@ -484,9 +571,22 @@
     const d = new FormData(f);
     const nome = limparNome(d.get('nome'));
     if (!nome) return f.querySelector('#f-nome').focus();
-    const bandeira = String(d.get('bandeira'));
-    if (f.id === 'f-form-criar') criarSala({ nome, bandeira, total: Number(d.get('total')) || 10, tempo: Number(d.get('tempo')) || 20 });
-    else entrarSala(params.get('sala').toUpperCase(), nome, bandeira);
+    const e = eu();
+    Object.assign(e, { nome }, perfil({ boneco: d.get('boneco'), cor: d.get('cor') }));
+    ls.gravar('festa:eu', e);
+    if (f.id === 'f-form-criar') criarSala({ total: Number(d.get('total')) || 10, tempo: Number(d.get('tempo')) || 20 });
+    else entrarSala(params.get('sala').toUpperCase());
+  });
+
+  // Pré-visualização ao vivo do boneco escolhido.
+  app.addEventListener('input', ev => {
+    const f = ev.target.form;
+    const previa = document.getElementById('f-previa');
+    if (!f || !previa || (f.id !== 'f-form-criar' && f.id !== 'f-form-entrar')) return;
+    const d = new FormData(f), p = perfil({ boneco: d.get('boneco'), cor: d.get('cor') });
+    previa.style.setProperty('--c', corVar(p.cor));
+    previa.querySelector('.avatar').textContent = p.boneco;
+    previa.querySelector('b').textContent = limparNome(d.get('nome')) || 'O meu boneco';
   });
 
   app.addEventListener('click', ev => {
@@ -533,7 +633,7 @@
   if (sala && /^[A-Z0-9]{4,8}$/i.test(sala)) {
     const guardado = ls.ler('festa:anfitriao', null);
     if (guardado && guardado.codigo === sala.toUpperCase() && guardado.hostId === eu().id) retomarAnfitriao(guardado);
-    else if (eu().nome && ls.ler('festa:ultima-sala', '') === sala.toUpperCase()) entrarSala(sala.toUpperCase(), eu().nome, eu().bandeira);
+    else if (eu().nome && ls.ler('festa:ultima-sala', '') === sala.toUpperCase()) entrarSala(sala.toUpperCase());
     else ecraEntrar(sala.toUpperCase());
     ls.gravar('festa:ultima-sala', sala.toUpperCase());
   }
